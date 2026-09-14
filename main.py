@@ -6,16 +6,16 @@ from database import init_db
 
 # Importar las interfaces gráficas
 from ui.hoteles_ui import HotelesUI
-from ui.habitaciones_ui import HabitacionesUI   # <-- Nueva importación
+from ui.habitaciones_ui import HabitacionesUI   
 from ui.clientes_ui import ClientesUI
 from ui.reservas_ui import ReservasUI
 from ui.checkin_checkout_ui import CheckInCheckOutUI
 from ui.tarifas_ui import TarifasUI
 from ui.servicios_ui import ServiciosUI
 from ui.eventos_ui import EventosUI
-from ui.consumo_ui import ConsumosUI   # <-- 👈 Importación añadida
-from ui.salon_ui import SalonUI        # <-- 👈 Nueva importación
-from ui.style import aplicar_estilos      # 👈 Importar estilos
+from ui.consumo_ui import ConsumosUI   
+from ui.salon_ui import SalonUI        
+from ui.style import aplicar_estilos      
 
 
 class HotelProApp(tk.Tk):
@@ -27,14 +27,14 @@ class HotelProApp(tk.Tk):
         # Aplicar estilos visuales
         aplicar_estilos(self)
 
-        # Inicializar la base de datos (crear tablas si no existen)
+        # Inicializar la base de datos 
         init_db()
 
         # Crear Notebook (pestañas)
         notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True)
 
-        # 📑 Orden lógico de pestañas (sin style aquí)
+        # Orden de las pestañas 
         notebook.add(HotelesUI(notebook), text="Hoteles")
         notebook.add(HabitacionesUI(notebook), text="Habitaciones")
         notebook.add(ClientesUI(notebook), text="Clientes")

@@ -110,16 +110,16 @@ class HotelesUI(ttk.Frame):
 
         # Botones con estilos pastel (misma posición lógica que tenías)
         ttk.Button(form_frame, text="✔️ Registrar Hotel",
-                   command=self.agregar_hotel, style="Registrar.TButton").grid(row=11, column=0, padx=5, pady=10)
+                    command=self.agregar_hotel, style="Registrar.TButton").grid(row=11, column=0, padx=5, pady=10)
 
         ttk.Button(form_frame, text="✏️ Editar Hotel",
-                   command=self.editar_hotel, style="Editar.TButton").grid(row=11, column=1, padx=5, pady=10)
+                    command=self.editar_hotel, style="Editar.TButton").grid(row=11, column=1, padx=5, pady=10)
 
         ttk.Button(form_frame, text="🔍 Buscar Hotel",
-                   command=self.buscar_hotel, style="Buscar.TButton").grid(row=11, column=2, padx=5, pady=10)
+                    command=self.buscar_hotel, style="Buscar.TButton").grid(row=11, column=2, padx=5, pady=10)
 
         ttk.Button(form_frame, text="❌ Eliminar Hotel",
-                   command=self.eliminar_hotel, style="Eliminar.TButton").grid(row=11, column=3, padx=5, pady=10)
+                    command=self.eliminar_hotel, style="Eliminar.TButton").grid(row=11, column=3, padx=5, pady=10)
 
         # ------------------ Tabla de hoteles con scroll vertical y horizontal ------------------
         table_frame = ttk.Frame(self)
