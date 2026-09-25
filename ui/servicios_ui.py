@@ -1,8 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_connection
+from database import actualizar_servicio, eliminar_servicio, get_connection
+from database import insertar_servicio
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import confirm_action, set_form_icon, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -39,6 +42,7 @@ class ServiciosUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#00897b")
 
         ttk.Label(self, text="Gestión de Servicios", style="Titulo.TLabel").pack(pady=10)
 
@@ -106,6 +110,8 @@ class ServiciosUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "servicios")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         self.cargar_servicios()
 
@@ -115,7 +121,33 @@ class ServiciosUI(ttk.Frame):
         Tooltip(entry,tip)
 
     # CRUD
+    def limpiar_campos(self):
+        entradas = (
+            self.codigo_entry, self.nombre_entry, self.descripcion_entry,
+            self.horario_entry, self.precio_entry
+        )
+        for entrada in entradas:
+            entrada.delete(0, tk.END)
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+
+        valores = self.tree.item(seleccion[0], "values")
+        entradas = (
+            self.codigo_entry, self.nombre_entry, self.descripcion_entry,
+            self.horario_entry, self.precio_entry
+        )
+        for entrada, valor in zip(entradas, valores):
+            entrada.delete(0, tk.END)
+            entrada.insert(0, "" if valor is None else str(valor))
+
     def agregar_servicio(self):
+        if not validate_numeric(self, [("Precio", self.precio_entry)], required=True):
+            return
+        if not validate_text(self, [("Nombre", self.nombre_entry), ("Descripción", self.descripcion_entry), ("Horario", self.horario_entry)], required=False):
+            return
         codigo=self.codigo_entry.get(); nombre=self.nombre_entry.get()
         descripcion=self.descripcion_entry.get(); horario=self.horario_entry.get()
         precio=self.precio_entry.get()
@@ -123,11 +155,8 @@ class ServiciosUI(ttk.Frame):
         if not codigo or not nombre or not precio:
             messagebox.showwarning("Error","Código, nombre y precio son obligatorios"); return
 
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("INSERT INTO servicios (codigo,nombre,descripcion,horario,precio) VALUES (%s,%s,%s,%s,%s)",
-                           (codigo,nombre,descripcion,horario,float(precio)))
-            conn.commit()
+            insertar_servicio(codigo, nombre, descripcion, horario, float(precio))
             tag="evenrow" if len(self.tree.get_children())%2==0 else "oddrow"
             self.tree.insert("", "end", values=(codigo,nombre,descripcion,horario,precio),tags=(tag,))
             # desplazar y seleccionar la última fila
@@ -137,10 +166,9 @@ class ServiciosUI(ttk.Frame):
                 self.tree.see(last)
                 self.tree.selection_set(last)
             messagebox.showinfo("Éxito",f"Servicio {nombre} registrado")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo registrar: {e}")
-        finally:
-            conn.close()
 
     def cargar_servicios(self):
         for row in self.tree.get_children(): self.tree.delete(row)
@@ -161,17 +189,19 @@ class ServiciosUI(ttk.Frame):
             conn.close()
 
     def editar_servicio(self):
+        if not validate_numeric(self, [("Precio", self.precio_entry)], required=True):
+            return
+        if not validate_text(self, [("Nombre", self.nombre_entry), ("Descripción", self.descripcion_entry), ("Horario", self.horario_entry)], required=False):
+            return
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione un servicio"); return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar este servicio?"): return
         codigo=self.tree.item(sel[0],"values")[0]
         nombre=self.nombre_entry.get(); descripcion=self.descripcion_entry.get()
         horario=self.horario_entry.get(); precio=self.precio_entry.get()
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("""
-                UPDATE servicios SET nombre=%s,descripcion=%s,horario=%s,precio=%s WHERE codigo=%s
-            """,(nombre,descripcion,horario,float(precio) if precio else 0,codigo))
-            conn.commit(); self.cargar_servicios()
+            actualizar_servicio(codigo, nombre, descripcion, horario, float(precio) if precio else 0)
+            self.cargar_servicios()
             # asegurar que el elemento editado sea visible
             children = self.tree.get_children()
             for ch in children:
@@ -181,24 +211,20 @@ class ServiciosUI(ttk.Frame):
                     self.tree.selection_set(ch)
                     break
             messagebox.showinfo("Éxito",f"Servicio {codigo} actualizado")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo actualizar: {e}")
-        finally:
-            conn.close()
 
     def eliminar_servicio(self):
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione un servicio"); return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar este servicio?"): return
         codigo=self.tree.item(sel[0],"values")[0]
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("DELETE FROM servicios WHERE codigo=%s",(codigo,))
-            conn.commit(); self.cargar_servicios()
+            eliminar_servicio(codigo); self.cargar_servicios()
             messagebox.showinfo("Éxito",f"Servicio {codigo} eliminado")
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo eliminar: {e}")
-        finally:
-            conn.close()
 
     def buscar_servicio(self):
         criterio=self.codigo_entry.get()

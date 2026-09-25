@@ -1,8 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_connection
+from database import actualizar_habitacion, eliminar_habitacion, get_connection
+from database import insertar_habitacion
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import confirm_action, set_form_icon, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -36,6 +39,7 @@ class HabitacionesUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#1565c0")
 
         ttk.Label(self, text="Gestión de Habitaciones", style="Titulo.TLabel").pack(pady=10)
 
@@ -130,11 +134,41 @@ class HabitacionesUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "habitaciones")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         self.cargar_habitaciones()
 
     # Métodos CRUD
+    def limpiar_campos(self):
+        entradas = (
+            self.numero_entry, self.piso_entry, self.tipo_entry,
+            self.orientacion_entry, self.estado_entry, self.tarifa_entry,
+            self.hotel_entry
+        )
+        for entrada in entradas:
+            entrada.delete(0, tk.END)
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+
+        valores = self.tree.item(seleccion[0], "values")
+        entradas = (
+            self.numero_entry, self.piso_entry, self.tipo_entry,
+            self.orientacion_entry, self.estado_entry, self.tarifa_entry,
+            self.hotel_entry
+        )
+        for entrada, valor in zip(entradas, valores):
+            entrada.delete(0, tk.END)
+            entrada.insert(0, "" if valor is None else str(valor))
+
     def agregar_habitacion(self):
+        if not validate_numeric(self, [("Piso", self.piso_entry), ("Tarifa", self.tarifa_entry)], integer_fields=("Piso",), required=False):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Estado", self.estado_entry)]):
+            return
         numero = self.numero_entry.get()
         piso = self.piso_entry.get()
         tipo = self.tipo_entry.get()
@@ -147,14 +181,9 @@ class HabitacionesUI(ttk.Frame):
             messagebox.showwarning("Error", "Los campos obligatorios no pueden estar vacíos")
             return
 
-        conn = get_connection(); cursor = conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO habitaciones (numero, piso, tipo, orientacion, estado, tarifa_base, hotel_codigo)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (numero, piso, tipo, orientacion, estado,
-                  float(tarifa) if tarifa else 0, hotel_codigo))
-            conn.commit()
+            insertar_habitacion(numero, piso, tipo, orientacion, estado,
+                                float(tarifa) if tarifa else 0, hotel_codigo)
             row_id = len(self.tree.get_children())
             tag = "evenrow" if row_id % 2 == 0 else "oddrow"
             self.tree.insert("", "end", values=(numero, piso, tipo, orientacion, estado, tarifa, hotel_codigo), tags=(tag,))
@@ -165,10 +194,9 @@ class HabitacionesUI(ttk.Frame):
                 self.tree.see(last)
                 self.tree.selection_set(last)
             messagebox.showinfo("Éxito", f"Habitación {numero} registrada correctamente")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo registrar la habitación: {e}")
-        finally:
-            conn.close()
 
     def cargar_habitaciones(self):
         for row in self.tree.get_children():
@@ -190,23 +218,23 @@ class HabitacionesUI(ttk.Frame):
             conn.close()
 
     def editar_habitacion(self):
+        if not validate_numeric(self, [("Piso", self.piso_entry), ("Tarifa", self.tarifa_entry)], integer_fields=("Piso",), required=False):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Estado", self.estado_entry)]):
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Seleccione una habitación para editar")
+            return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar esta habitación?"):
             return
         numero = self.tree.item(selected[0], "values")[0]
         piso = self.piso_entry.get(); tipo = self.tipo_entry.get()
         orientacion = self.orientacion_entry.get(); estado = self.estado_entry.get()
         tarifa = self.tarifa_entry.get(); hotel_codigo = self.hotel_entry.get()
-        conn = get_connection(); cursor = conn.cursor()
         try:
-            cursor.execute("""
-                UPDATE habitaciones
-                SET piso=%s, tipo=%s, orientacion=%s, estado=%s, tarifa_base=%s, hotel_codigo=%s
-                WHERE numero=%s
-            """, (piso, tipo, orientacion, estado,
-                  float(tarifa) if tarifa else 0, hotel_codigo, numero))
-            conn.commit()
+            actualizar_habitacion(numero, piso, tipo, orientacion, estado,
+                                  float(tarifa) if tarifa else 0, hotel_codigo)
             self.cargar_habitaciones()
             # asegurar que el elemento editado sea visible
             children = self.tree.get_children()
@@ -217,27 +245,24 @@ class HabitacionesUI(ttk.Frame):
                     self.tree.selection_set(ch)
                     break
             messagebox.showinfo("Éxito", f"Habitación {numero} actualizada correctamente")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo actualizar la habitación: {e}")
-        finally:
-            conn.close()
 
     def eliminar_habitacion(self):
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Seleccione una habitación para eliminar")
             return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar esta habitación?"):
+            return
         numero = self.tree.item(selected[0], "values")[0]
-        conn = get_connection(); cursor = conn.cursor()
         try:
-            cursor.execute("DELETE FROM habitaciones WHERE numero=%s", (numero,))
-            conn.commit()
+            eliminar_habitacion(numero)
             self.cargar_habitaciones()
             messagebox.showinfo("Éxito", f"Habitación {numero} eliminada correctamente")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo eliminar la habitación: {e}")
-        finally:
-            conn.close()
 
     def buscar_habitacion(self):
         criterio = self.numero_entry.get()

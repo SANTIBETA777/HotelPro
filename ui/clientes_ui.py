@@ -2,9 +2,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from modulos.cliente import Cliente
-from database import get_connection
+from database import actualizar_cliente, eliminar_cliente, guardar_imagen, get_connection, insertar_cliente
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import add_image_field, confirm_action, set_form_icon, validate_email, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
+from tkcalendar import DateEntry
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -37,6 +40,7 @@ class ClientesUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#2e7d32")
 
         ttk.Label(self, text="Gestión de Clientes", style="Titulo.TLabel").pack(pady=10)
 
@@ -62,7 +66,7 @@ class ClientesUI(ttk.Frame):
         self.entries = {}
         for i, (label, key, tip) in enumerate(labels):
             ttk.Label(form_frame, text=label, style="Campo.TLabel").grid(row=i, column=0, sticky="w", pady=3)
-            entry = ttk.Entry(form_frame)
+            entry = DateEntry(form_frame, date_pattern="yyyy-mm-dd") if key == "fecha_nacimiento" else ttk.Entry(form_frame)
             entry.grid(row=i, column=1, pady=3)
             Tooltip(entry, tip)
             self.entries[key] = entry
@@ -83,6 +87,10 @@ class ClientesUI(ttk.Frame):
                    command=self.eliminar_cliente, style="Eliminar.TButton").grid(
             row=len(labels), column=3, padx=5, pady=10
         )
+
+        self.imagen_entry = ttk.Entry(form_frame, width=28)
+        self.imagen_preview = ttk.Label(form_frame, text="Sin imagen", width=22)
+        add_image_field(form_frame, len(labels) + 1, "Imagen del cliente:", self.imagen_entry, self.imagen_preview)
 
         # ------------------ Tabla con scroll vertical y horizontal ------------------
         table_frame = ttk.Frame(self)
@@ -132,11 +140,33 @@ class ClientesUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "clientes")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         self.cargar_clientes()
 
     # Métodos CRUD
+    def limpiar_campos(self):
+        for entrada in self.entries.values():
+            entrada.delete(0, tk.END)
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+
+        valores = self.tree.item(seleccion[0], "values")
+        for entrada, valor in zip(self.entries.values(), valores):
+            entrada.delete(0, tk.END)
+            entrada.insert(0, "" if valor is None else str(valor))
+
     def agregar_cliente(self):
+        if not validate_text(self, [("Nombres", self.entries["nombres"]), ("Apellidos", self.entries["apellidos"])]):
+            return
+        if not validate_email(self, "Correo", self.entries["correo"]):
+            return
+        if not validate_numeric(self, [("Nivel", self.entries["nivel"])], integer_fields=("Nivel",), required=False):
+            return
         datos = {key: entry.get() for key, entry in self.entries.items()}
         if not datos["id"] or not datos["nombres"] or not datos["apellidos"] or not datos["correo"]:
             messagebox.showwarning("Error", "ID, nombres, apellidos y correo son obligatorios")
@@ -148,15 +178,12 @@ class ClientesUI(ttk.Frame):
             [], int(datos["nivel"]) if datos["nivel"] else 0
         )
 
-        conn = get_connection()
-        cursor = conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO clientes (id, nombres, apellidos, documento, nacionalidad, fecha_nacimiento, direccion, telefono, correo, nivel_fidelizacion)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (cliente.id_cliente, cliente.nombres, cliente.apellidos, cliente.documento, cliente.nacionalidad,
-                  cliente.fecha_nacimiento, cliente.direccion, cliente.telefono, cliente.correo, cliente.nivel_fidelizacion))
-            conn.commit()
+            insertar_cliente(cliente.id_cliente, cliente.nombres, cliente.apellidos,
+                             cliente.documento, cliente.nacionalidad,
+                             cliente.fecha_nacimiento, cliente.direccion,
+                             cliente.telefono, cliente.correo,
+                             cliente.nivel_fidelizacion)
             row_id = len(self.tree.get_children())
             tag = "evenrow" if row_id % 2 == 0 else "oddrow"
             # Insertar en treeview y desplazar a la última fila
@@ -166,11 +193,12 @@ class ClientesUI(ttk.Frame):
                 last = children[-1]
                 self.tree.see(last)
                 self.tree.selection_set(last)
+            if self.imagen_entry.get().strip():
+                guardar_imagen("clientes", cliente.id_cliente, self.imagen_entry.get().strip())
             messagebox.showinfo("Éxito", f"Cliente {cliente.nombres} registrado correctamente")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo registrar el cliente: {e}")
-        finally:
-            conn.close()
 
     def cargar_clientes(self):
         for row in self.tree.get_children():
@@ -192,46 +220,48 @@ class ClientesUI(ttk.Frame):
             conn.close()
 
     def editar_cliente(self):
+        if not validate_text(self, [("Nombres", self.entries["nombres"]), ("Apellidos", self.entries["apellidos"])]):
+            return
+        if not validate_email(self, "Correo", self.entries["correo"]):
+            return
+        if not validate_numeric(self, [("Nivel", self.entries["nivel"])], integer_fields=("Nivel",), required=False):
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Seleccione un cliente para editar")
             return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar este cliente?"):
+            return
         cliente_id = self.tree.item(selected[0], "values")[0]
         datos = {key: entry.get() for key, entry in self.entries.items()}
-        conn = get_connection(); cursor = conn.cursor()
         try:
-            cursor.execute("""
-                UPDATE clientes
-                SET nombres=%s, apellidos=%s, documento=%s, nacionalidad=%s, fecha_nacimiento=%s,
-                    direccion=%s, telefono=%s, correo=%s, nivel_fidelizacion=%s
-                WHERE id=%s
-            """, (datos["nombres"], datos["apellidos"], datos["documento"], datos["nacionalidad"],
-                  datos["fecha_nacimiento"], datos["direccion"], datos["telefono"], datos["correo"],
-                  int(datos["nivel"]) if datos["nivel"] else 0, cliente_id))
-            conn.commit()
+            actualizar_cliente(cliente_id, datos["nombres"], datos["apellidos"],
+                               datos["documento"], datos["nacionalidad"],
+                               datos["fecha_nacimiento"], datos["direccion"],
+                               datos["telefono"], datos["correo"],
+                               int(datos["nivel"]) if datos["nivel"] else 0)
+            if self.imagen_entry.get().strip():
+                guardar_imagen("clientes", cliente_id, self.imagen_entry.get().strip())
             self.cargar_clientes()
             messagebox.showinfo("Éxito", f"Cliente {cliente_id} actualizado correctamente")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo actualizar el cliente: {e}")
-        finally:
-            conn.close()
 
     def eliminar_cliente(self):
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Seleccione un cliente para eliminar")
             return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar este cliente?"):
+            return
         cliente_id = self.tree.item(selected[0], "values")[0]
-        conn = get_connection(); cursor = conn.cursor()
         try:
-            cursor.execute("DELETE FROM clientes WHERE id=%s", (cliente_id,))
-            conn.commit()
+            eliminar_cliente(cliente_id)
             self.cargar_clientes()
             messagebox.showinfo("Éxito", f"Cliente {cliente_id} eliminado correctamente")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo eliminar el cliente: {e}")
-        finally:
-            conn.close()
 
     def buscar_cliente(self):
         criterio = self.entries["id"].get()

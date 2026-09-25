@@ -1,10 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
-from datetime import datetime
 
 # Importar inicialización de la base de datos
 from database import init_db
-from ui.form_utils import set_form_icon
 
 # Importar las interfaces gráficas
 from ui.hoteles_ui import HotelesUI
@@ -25,31 +23,19 @@ class HotelProApp(tk.Tk):
         super().__init__()
         self.title("HotelPro - Sistema de Gestión Hotelera")
         self.geometry("900x600")
-        set_form_icon(self, "#0f172a")
 
         # Aplicar estilos visuales
         aplicar_estilos(self)
 
-        self.columnconfigure(0, weight=1)
-        self.columnconfigure(1, weight=0)
-        self.columnconfigure(2, weight=0)
-        self.rowconfigure(1, weight=1)
-
-        self.fecha = ttk.Label(self, text="", style="Titulo.TLabel")
-        self.fecha.grid(row=0, column=2, padx=(0, 12), pady=4, sticky="e")
         ttk.Button(self, text="Tema claro/oscuro", command=lambda: alternar_tema(self),
-               style="Accion.TButton").grid(row=0, column=1, padx=8, pady=4)
-
-        self.reloj = ttk.Label(self, text="", style="Titulo.TLabel")
-        self.reloj.grid(row=0, column=0, padx=(12, 0), pady=4, sticky="w")
-        self.actualizar_hora()
+               style="Accion.TButton").pack(anchor="ne", padx=8, pady=4)
 
         # Inicializar la base de datos 
         init_db()
 
         # Crear Notebook (pestañas)
         notebook = ttk.Notebook(self)
-        notebook.grid(row=1, column=0, columnspan=3, sticky="nsew")
+        notebook.pack(fill="both", expand=True)
 
         # Orden de las pestañas 
         notebook.add(HotelesUI(notebook), text="Hoteles")
@@ -62,12 +48,6 @@ class HotelProApp(tk.Tk):
         notebook.add(ConsumosUI(notebook), text="Consumos")
         notebook.add(EventosUI(notebook), text="Eventos")
         notebook.add(SalonUI(notebook), text="Salones")
-
-    def actualizar_hora(self):
-        ahora = datetime.now()
-        self.fecha.config(text=ahora.strftime("%d/%m/%Y"))
-        self.reloj.config(text=ahora.strftime("%H:%M:%S"))
-        self.after(1000, self.actualizar_hora)
 
 
 if __name__ == "__main__":

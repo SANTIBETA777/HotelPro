@@ -28,3 +28,24 @@ class Cliente:
 
     def actualizar_fidelizacion(self, puntos):
         self.nivel_fidelizacion += puntos
+
+    def descuento_por_fidelizacion(self):
+        """Descuento según nivel de fidelización del cliente."""
+        descuentos = {
+            0: 0.00,
+            1: 0.05,
+            2: 0.10,
+            3: 0.15,
+            4: 0.20,
+        }
+        return descuentos.get(self.nivel_fidelizacion, 0.20)
+
+    def aplicar_descuento(self, subtotal, descuento_extra=0.0):
+        """Aplica descuento por fidelización + descuento adicional."""
+        descuento_total = self.descuento_por_fidelizacion() + descuento_extra
+        descuento_total = min(descuento_total, 0.35)
+        return round(subtotal * descuento_total, 2)
+
+    def calcular_total_con_descuento(self, subtotal, descuento_extra=0.0):
+        descuento = self.aplicar_descuento(subtotal, descuento_extra)
+        return round(subtotal - descuento, 2), round(descuento, 2)

@@ -35,6 +35,15 @@ class Reserva:
         return (f"Reserva {self.numero_reserva} - Cliente: {self.cliente.nombres} "
                 f"{self.cliente.apellidos}, Estado: {self.estado}")
 
-    def calcular_total(self):
-        """Ejemplo de cálculo: tarifa * noches"""
-        return self.tarifa_aplicada * self.num_noches
+    def calcular_total(self, descuento_cliente=0.0, descuento_promocional=0.0, impuestos=0.12):
+        """Calcula el total real de la reserva considerando noches, habitaciones, impuestos y descuentos."""
+        subtotal = self.tarifa_aplicada * self.num_noches * self.num_habitaciones
+        descuento_total = min(max(descuento_cliente + descuento_promocional, 0.0), 0.35)
+        subtotal_descuento = subtotal * (1 - descuento_total)
+        total = subtotal_descuento * (1 + max(impuestos, 0.0))
+        return round(total, 2)
+
+    def calcular_descuento(self, descuento_cliente=0.0, descuento_promocional=0.0):
+        subtotal = self.tarifa_aplicada * self.num_noches * self.num_habitaciones
+        descuento_total = min(max(descuento_cliente + descuento_promocional, 0.0), 0.35)
+        return round(subtotal * descuento_total, 2)

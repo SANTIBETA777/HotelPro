@@ -9,6 +9,156 @@ def get_connection():
         database="hotelpro"
     )
 
+
+def ejecutar_procedimiento(nombre, parametros=()):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.callproc(nombre, tuple(parametros))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def ejecutar_crud(nombre, parametros, sql_fallback, parametros_fallback=None):
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        try:
+            cursor.callproc(nombre, tuple(parametros))
+        except mysql.connector.Error:
+            cursor.execute(sql_fallback, tuple(parametros_fallback or parametros))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def actualizar_hotel(*valores):
+    ejecutar_crud("ActualizarHotel", valores, """UPDATE hoteles SET nombre=%s, categoria=%s,
+        direccion=%s, telefono=%s, correo=%s, anio_inauguracion=%s,
+        num_habitaciones=%s, gerente=%s WHERE codigo=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_hotel(codigo):
+    ejecutar_crud("EliminarHotel", (codigo,), "DELETE FROM hoteles WHERE codigo=%s")
+
+
+def actualizar_habitacion(*valores):
+    ejecutar_crud("ActualizarHabitacion", valores, """UPDATE habitaciones SET piso=%s, tipo=%s,
+        orientacion=%s, estado=%s, tarifa_base=%s, hotel_codigo=%s WHERE numero=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_habitacion(numero):
+    ejecutar_crud("EliminarHabitacion", (numero,), "DELETE FROM habitaciones WHERE numero=%s")
+
+
+def actualizar_cliente(*valores):
+    ejecutar_crud("ActualizarCliente", valores, """UPDATE clientes SET nombres=%s, apellidos=%s,
+        documento=%s, nacionalidad=%s, fecha_nacimiento=%s, direccion=%s,
+        telefono=%s, correo=%s, nivel_fidelizacion=%s WHERE id=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_cliente(cliente_id):
+    ejecutar_crud("EliminarCliente", (cliente_id,), "DELETE FROM clientes WHERE id=%s")
+
+
+def actualizar_reserva(*valores):
+    ejecutar_crud("ActualizarReserva", valores, """UPDATE reservas SET cliente_id=%s,
+        fecha_llegada=%s, fecha_salida=%s, noches=%s, habitaciones=%s,
+        tarifa=%s WHERE numero=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_reserva(numero):
+    ejecutar_crud("EliminarReserva", (numero,), "DELETE FROM reservas WHERE numero=%s")
+
+
+def actualizar_tarifa(*valores):
+    ejecutar_crud("ActualizarTarifa", valores, """UPDATE tarifas SET tipo_habitacion=%s,
+        temporada=%s, tarifa_base=%s, impuestos=%s, descuento=%s,
+        precio_final=%s WHERE codigo=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_tarifa(codigo):
+    ejecutar_crud("EliminarTarifa", (codigo,), "DELETE FROM tarifas WHERE codigo=%s")
+
+
+def actualizar_servicio(*valores):
+    ejecutar_crud("ActualizarServicio", valores, """UPDATE servicios SET nombre=%s,
+        descripcion=%s, horario=%s, precio=%s WHERE codigo=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_servicio(codigo):
+    ejecutar_crud("EliminarServicio", (codigo,), "DELETE FROM servicios WHERE codigo=%s")
+
+
+def actualizar_evento(*valores):
+    ejecutar_crud("ActualizarEvento", valores, """UPDATE eventos SET tipo=%s,
+        cliente_id=%s, fecha=%s, duracion=%s, asistentes=%s,
+        precio_total=%s, estado=%s WHERE codigo=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_evento(codigo):
+    ejecutar_crud("EliminarEvento", (codigo,), "DELETE FROM eventos WHERE codigo=%s")
+
+
+def actualizar_salon(*valores):
+    ejecutar_crud("ActualizarSalon", valores, """UPDATE salones SET nombre=%s,
+        ubicacion=%s, capacidad=%s, tamano=%s, configuraciones=%s,
+        tarifa=%s WHERE codigo=%s""", valores[1:] + valores[:1])
+
+
+def eliminar_salon(codigo):
+    ejecutar_crud("EliminarSalon", (codigo,), "DELETE FROM salones WHERE codigo=%s")
+
+
+def actualizar_consumo(cliente_id, habitacion, servicio, fecha, cantidad, empleado):
+    ejecutar_crud(
+        "ActualizarConsumo",
+        (cliente_id, habitacion, servicio, fecha, cantidad, empleado),
+        """UPDATE consumos SET cantidad=%s, total=(SELECT precio FROM servicios WHERE codigo=%s) * %s,
+            empleado=%s WHERE cliente_id=%s AND habitacion_numero=%s AND servicio_codigo=%s AND fecha=%s""",
+        (cantidad, servicio, cantidad, empleado, cliente_id, habitacion, servicio, fecha),
+    )
+
+
+def eliminar_consumo(cliente_id, habitacion, servicio, fecha):
+    ejecutar_crud(
+        "EliminarConsumo", (cliente_id, habitacion, servicio, fecha),
+        """DELETE FROM consumos WHERE cliente_id=%s AND habitacion_numero=%s
+            AND servicio_codigo=%s AND fecha=%s""",
+    )
+
+
+def actualizar_movimiento(movimiento_id, reserva, habitacion, tipo, empleado, observaciones):
+    ejecutar_crud(
+        "ActualizarMovimiento",
+        (movimiento_id, reserva, habitacion, tipo, empleado, observaciones),
+        """UPDATE movimientos SET reserva_numero=%s, habitacion_numero=%s,
+            tipo=%s, empleado=%s, observaciones=%s WHERE id=%s""",
+        (reserva, habitacion, tipo, empleado, observaciones, movimiento_id),
+    )
+
+
+def eliminar_movimiento(movimiento_id):
+    ejecutar_crud("EliminarMovimiento", (movimiento_id,), "DELETE FROM movimientos WHERE id=%s")
+
+
+def guardar_imagen(tabla, clave, valor):
+    tablas_validas = {"hoteles": "codigo", "clientes": "id"}
+    if tabla not in tablas_validas:
+        raise ValueError("Tabla de imagen no permitida")
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        columna_clave = tablas_validas[tabla]
+        cursor.execute(
+            f"UPDATE {tabla} SET imagen=%s WHERE {columna_clave}=%s",
+            (valor, clave),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
 # -------------------------------
 # FUNCIONES DE HOTELES
 # -------------------------------
@@ -207,7 +357,8 @@ def init_db():
             direccion VARCHAR(200),
             telefono VARCHAR(20),
             correo VARCHAR(100),
-            nivel_fidelizacion INT DEFAULT 0
+            nivel_fidelizacion INT DEFAULT 0,
+            imagen VARCHAR(500)
         )
     """)
 
@@ -239,7 +390,8 @@ def init_db():
             correo VARCHAR(100),
             anio_inauguracion INT,
             num_habitaciones INT,
-            gerente VARCHAR(100)
+            gerente VARCHAR(100),
+            imagen VARCHAR(500)
         )
     """)
 
@@ -329,6 +481,13 @@ def init_db():
             tarifa DECIMAL(10,2)
         )
     """)
+
+    for tabla in ("hoteles", "clientes"):
+        try:
+            cursor.execute(f"ALTER TABLE {tabla} ADD COLUMN imagen VARCHAR(500)")
+        except mysql.connector.Error as error:
+            if error.errno not in (1060, 1061):
+                raise
 
 
     # Aquí puedes añadir más CREATE TABLE IF NOT EXISTS para hoteles, reservas, etc.

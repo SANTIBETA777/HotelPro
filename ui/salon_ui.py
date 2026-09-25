@@ -1,8 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from modulos.salon import registrar_salon, obtener_salones, actualizar_salon, eliminar_salon, buscar_salon
+from database import actualizar_salon as actualizar_salon_proc, eliminar_salon as eliminar_salon_proc, insertar_salon
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import confirm_action, set_form_icon, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -39,6 +42,7 @@ class SalonUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#c62828")
 
         ttk.Label(self, text="Gestión de Salones", style="Titulo.TLabel").pack(pady=10)
 
@@ -110,6 +114,8 @@ class SalonUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "salones")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         # Cargar salones desde el módulo
         self.cargar_salones()
@@ -120,9 +126,37 @@ class SalonUI(ttk.Frame):
         Tooltip(entry,tip)
 
     # CRUD
+    def limpiar_campos(self):
+        entradas = (
+            self.codigo_entry, self.nombre_entry, self.ubicacion_entry,
+            self.capacidad_entry, self.tamano_entry, self.config_entry,
+            self.tarifa_entry
+        )
+        for entrada in entradas:
+            entrada.delete(0, tk.END)
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+
+        valores = self.tree.item(seleccion[0], "values")
+        entradas = (
+            self.codigo_entry, self.nombre_entry, self.ubicacion_entry,
+            self.capacidad_entry, self.tamano_entry, self.config_entry,
+            self.tarifa_entry
+        )
+        for entrada, valor in zip(entradas, valores):
+            entrada.delete(0, tk.END)
+            entrada.insert(0, "" if valor is None else str(valor))
+
     def agregar_salon(self):
+        if not validate_numeric(self, [("Capacidad", self.capacidad_entry), ("Tamaño", self.tamano_entry), ("Tarifa", self.tarifa_entry)], integer_fields=("Capacidad",), required=False):
+            return
+        if not validate_text(self, [("Nombre", self.nombre_entry), ("Ubicación", self.ubicacion_entry), ("Configuraciones", self.config_entry)], required=False):
+            return
         try:
-            registrar_salon(
+            insertar_salon(
                 self.codigo_entry.get(),
                 self.nombre_entry.get(),
                 self.ubicacion_entry.get(),
@@ -143,6 +177,7 @@ class SalonUI(ttk.Frame):
                 self.tree.see(last)
                 self.tree.selection_set(last)
             messagebox.showinfo("Éxito",f"Salón {self.codigo_entry.get()} registrado")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo registrar: {e}")
 
@@ -160,11 +195,16 @@ class SalonUI(ttk.Frame):
             messagebox.showerror("Error",f"No se pudo cargar salones: {e}")
 
     def editar_salon(self):
+        if not validate_numeric(self, [("Capacidad", self.capacidad_entry), ("Tamaño", self.tamano_entry), ("Tarifa", self.tarifa_entry)], integer_fields=("Capacidad",), required=False):
+            return
+        if not validate_text(self, [("Nombre", self.nombre_entry), ("Ubicación", self.ubicacion_entry), ("Configuraciones", self.config_entry)], required=False):
+            return
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione un salón"); return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar este salón?"): return
         codigo=self.tree.item(sel[0],"values")[0]
         try:
-            actualizar_salon(
+            actualizar_salon_proc(
                 codigo,
                 self.nombre_entry.get(),
                 self.ubicacion_entry.get(),
@@ -183,15 +223,17 @@ class SalonUI(ttk.Frame):
                     self.tree.selection_set(ch)
                     break
             messagebox.showinfo("Éxito",f"Salón {codigo} actualizado")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo actualizar: {e}")
 
     def eliminar_salon(self):
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione un salón"); return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar este salón?"): return
         codigo=self.tree.item(sel[0],"values")[0]
         try:
-            eliminar_salon(codigo)
+            eliminar_salon_proc(codigo)
             self.cargar_salones()
             messagebox.showinfo("Éxito",f"Salón {codigo} eliminado")
         except Exception as e:

@@ -29,11 +29,13 @@ class Habitacion:
     def cambiar_estado(self, nuevo_estado):
         self.estado = nuevo_estado
 
-    def calcular_tarifa(self, temporada_factor=1.0, descuento=0.0):
-        """Calcula tarifa aplicando temporada y descuentos"""
-        tarifa = self.tarifa_base * temporada_factor
-        tarifa -= tarifa * descuento
-        return tarifa
+    def calcular_tarifa(self, temporada_factor=1.0, descuento=0.0, noches=1, impuestos=0.0):
+        """Calcula la tarifa total de noches aplicando temporada, impuestos y descuentos."""
+        subtotal = self.tarifa_base * temporada_factor * noches
+        descuento_total = min(max(descuento, 0.0), 0.35)
+        subtotal *= (1 - descuento_total)
+        subtotal *= (1 + max(impuestos, 0.0))
+        return round(subtotal, 2)
 
     def mostrar_info(self):
         return f"Habitación {self.numero} ({self.tipo.descripcion}) - Estado: {self.estado}"

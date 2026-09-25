@@ -3,6 +3,9 @@ from tkinter import ttk, messagebox
 from modulos.consumo import registrar_consumo, obtener_consumos, actualizar_consumo, eliminar_consumo, buscar_consumo
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import confirm_action, set_form_icon, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
+from tkcalendar import DateEntry
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -35,6 +38,7 @@ class ConsumosUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#00838f")
 
         ttk.Label(self, text="Gestión de Consumos", style="Titulo.TLabel").pack(pady=10)
 
@@ -57,7 +61,7 @@ class ConsumosUI(ttk.Frame):
         Tooltip(self.servicio, "Código del servicio consumido (ej. SPA01)")
 
         ttk.Label(form, text="Fecha:", style="Campo.TLabel").grid(row=3, column=0, sticky="w", pady=3)
-        self.fecha = ttk.Entry(form); self.fecha.grid(row=3, column=1, pady=3)
+        self.fecha = DateEntry(form, date_pattern="yyyy-mm-dd"); self.fecha.grid(row=3, column=1, pady=3)
         Tooltip(self.fecha, "Fecha del consumo en formato AAAA-MM-DD")
 
         ttk.Label(form, text="Cantidad:", style="Campo.TLabel").grid(row=4, column=0, sticky="w", pady=3)
@@ -123,12 +127,33 @@ class ConsumosUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "consumos")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         # Cargar consumos desde la BD / módulo
         self.cargar_consumos()
 
     # Métodos CRUD
+    def limpiar_campos(self):
+        for entrada in (self.cliente_id, self.habitacion, self.servicio, self.cantidad, self.empleado):
+            entrada.delete(0, tk.END)
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+        valores = self.tree.item(seleccion[0], "values")
+        for entrada, valor in zip(
+            (self.cliente_id, self.habitacion, self.servicio, self.fecha, self.cantidad, self.empleado),
+            (valores[0], valores[1], valores[2], valores[3], valores[4], valores[6]),
+        ):
+            entrada.delete(0, tk.END)
+            entrada.insert(0, "" if valor is None else str(valor))
     def registrar_consumo(self):
+        if not validate_numeric(self, [("Cliente", self.cliente_id), ("Habitación", self.habitacion), ("Cantidad", self.cantidad)], integer_fields=("Cliente", "Habitación", "Cantidad"), required=True):
+            return
+        if not validate_text(self, [("Servicio", self.servicio), ("Empleado", self.empleado)], required=False):
+            return
         try:
             total = registrar_consumo(
                 self.cliente_id.get(),
@@ -139,6 +164,7 @@ class ConsumosUI(ttk.Frame):
                 self.empleado.get()
             )
             messagebox.showinfo("Éxito", f"Consumo registrado con total {total}")
+            self.limpiar_campos()
             # recargar y desplazar a la última fila
             self.cargar_consumos()
             children = self.tree.get_children()
@@ -164,9 +190,15 @@ class ConsumosUI(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo cargar consumos: {e}")
 
     def editar_consumo(self):
+        if not validate_numeric(self, [("Cliente", self.cliente_id), ("Habitación", self.habitacion), ("Cantidad", self.cantidad)], integer_fields=("Cliente", "Habitación", "Cantidad"), required=True):
+            return
+        if not validate_text(self, [("Servicio", self.servicio), ("Empleado", self.empleado)], required=False):
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Seleccione un consumo para editar")
+            return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar este consumo?"):
             return
         item = self.tree.item(selected[0]); cliente_id, habitacion, servicio, fecha, cantidad, total, empleado = item["values"]
         try:
@@ -188,6 +220,7 @@ class ConsumosUI(ttk.Frame):
                     self.tree.selection_set(ch)
                     break
             messagebox.showinfo("Éxito", f"Consumo actualizado con nuevo total {nuevo_total}")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -195,6 +228,8 @@ class ConsumosUI(ttk.Frame):
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Seleccione un consumo para eliminar")
+            return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar este consumo?"):
             return
         item = self.tree.item(selected[0]); cliente_id, habitacion, servicio, fecha, cantidad, total, empleado = item["values"]
         try:

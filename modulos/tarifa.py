@@ -23,12 +23,13 @@ class Tarifa:
         self.descuento = descuento
         self.condiciones = condiciones if condiciones else []
 
-    def calcular_precio(self, noches=1):
-        """Calcula el precio total aplicando temporada, impuestos y descuentos"""
-        precio = self.tarifa_base * self.temporada.factor * noches
-        precio += precio * self.impuestos
-        precio -= precio * self.descuento
-        return precio
+    def calcular_precio(self, noches=1, descuento_extra=0.0, impuestos_extra=0.0):
+        """Calcula el precio total aplicando temporada, impuestos y descuentos del negocio."""
+        subtotal = self.tarifa_base * self.temporada.factor * noches
+        descuento_total = min(max(self.descuento + descuento_extra, 0.0), 0.35)
+        subtotal *= (1 - descuento_total)
+        subtotal *= (1 + max(self.impuestos + impuestos_extra, 0.0))
+        return round(subtotal, 2)
 
     def mostrar_info(self):
         return (f"Tarifa {self.codigo} - {self.tipo_habitacion} "

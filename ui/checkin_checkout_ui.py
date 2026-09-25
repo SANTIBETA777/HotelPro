@@ -1,8 +1,11 @@
 import tkinter as tk
+from datetime import datetime
 from tkinter import ttk, messagebox
-from database import get_connection
+from database import actualizar_movimiento, eliminar_movimiento, get_connection, registrar_checkin, registrar_checkout
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import confirm_action, set_form_icon, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -38,6 +41,7 @@ class CheckInCheckOutUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#ad1457")
         self.configure(style="Custom.TFrame")
 
         ttk.Label(self, text="Gestión de Check-In / Check-Out", style="Titulo.TLabel").pack(pady=10)
@@ -69,15 +73,20 @@ class CheckInCheckOutUI(ttk.Frame):
         self.obs_entry = ttk.Entry(form_frame); self.obs_entry.grid(row=4, column=1, pady=5)
         Tooltip(self.obs_entry, "Notas adicionales sobre el movimiento")
 
+        self.resumen_var = tk.StringVar(value="Estado del negocio: sin movimiento")
+        ttk.Label(form_frame, textvariable=self.resumen_var, style="Campo.TLabel").grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(4, 8)
+        )
+
         # Botones
         ttk.Button(form_frame, text="✔️ Registrar Movimiento",
-                   command=self.agregar_movimiento, style="Registrar.TButton").grid(row=5, column=0, sticky="w", padx=5, pady=15)
+                   command=self.agregar_movimiento, style="Registrar.TButton").grid(row=6, column=0, sticky="w", padx=5, pady=15)
         ttk.Button(form_frame, text="✏️ Editar Movimiento",
-                   command=self.editar_movimiento, style="Editar.TButton").grid(row=5, column=1, padx=5, pady=10)
+                   command=self.editar_movimiento, style="Editar.TButton").grid(row=6, column=1, padx=5, pady=10)
         ttk.Button(form_frame, text="🔍 Buscar Movimiento",
-                   command=self.buscar_movimiento, style="Buscar.TButton").grid(row=5, column=2, padx=5, pady=10)
+                   command=self.buscar_movimiento, style="Buscar.TButton").grid(row=6, column=2, padx=5, pady=10)
         ttk.Button(form_frame, text="❌ Eliminar Movimiento",
-                   command=self.eliminar_movimiento, style="Eliminar.TButton").grid(row=5, column=3, padx=5, pady=10)
+                   command=self.eliminar_movimiento, style="Eliminar.TButton").grid(row=6, column=3, padx=5, pady=10)
 
         # ------------------ Tabla con scroll vertical y horizontal ------------------
         table_frame = ttk.Frame(self)
@@ -129,12 +138,64 @@ class CheckInCheckOutUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "movimientos")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         # Cargar movimientos desde la BD
         self.cargar_movimientos()
 
+    def _resumen_hotelero(self, reserva_numero, habitacion_numero):
+        conn = get_connection(); cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT tarifa, noches, cliente_id FROM reservas WHERE numero=%s", (reserva_numero,))
+            fila = cursor.fetchone()
+            if not fila:
+                return "Estado del negocio: reserva no encontrada"
+            tarifa, noches, cliente_id = fila
+            cursor.execute("SELECT nivel_fidelizacion FROM clientes WHERE id=%s", (cliente_id,))
+            nivel = cursor.fetchone()
+            nivel = int(nivel[0]) if nivel and nivel[0] is not None else 0
+            subtotal = float(tarifa or 0) * int(noches or 1)
+            from modulos.cliente import Cliente
+            cliente = Cliente("", "Cliente", "", "", "", "", "", "", "", nivel_fidelizacion=nivel)
+            total, descuento = cliente.calcular_total_con_descuento(subtotal, 0.05)
+            return f"Reserva {reserva_numero} | Hab. {habitacion_numero} | Total estimado: ${total:,.2f} | Descuento: ${descuento:,.2f}"
+        except Exception:
+            return "Estado del negocio: sin datos de negocio válidos"
+        finally:
+            conn.close()
+
     # Métodos CRUD
+    def limpiar_campos(self):
+        entradas = (
+            self.reserva_entry, self.habitacion_entry, self.tipo_entry,
+            self.empleado_entry, self.obs_entry
+        )
+        for entrada in entradas:
+            entrada.delete(0, tk.END)
+        self.resumen_var.set("Estado del negocio: sin movimiento")
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+
+        valores = self.tree.item(seleccion[0], "values")
+        self.limpiar_campos()
+        entradas_valores = (
+            (self.reserva_entry, valores[1]),
+            (self.habitacion_entry, valores[2]),
+            (self.tipo_entry, valores[3]),
+            (self.empleado_entry, valores[5])
+        )
+        for entrada, valor in entradas_valores:
+            entrada.insert(0, "" if valor is None else str(valor))
+
     def agregar_movimiento(self):
+        if not validate_numeric(self, [("Reserva", self.reserva_entry), ("Habitación", self.habitacion_entry)], required=True):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Empleado", self.empleado_entry)], required=False):
+            return
         reserva_numero = self.reserva_entry.get()
         habitacion_numero = self.habitacion_entry.get()
         tipo = self.tipo_entry.get()
@@ -145,17 +206,17 @@ class CheckInCheckOutUI(ttk.Frame):
             messagebox.showwarning("Error", "Los campos obligatorios no pueden estar vacíos")
             return
 
-        conn = get_connection(); cursor = conn.cursor()
+        self.resumen_var.set(self._resumen_hotelero(reserva_numero, habitacion_numero))
+
         try:
-            cursor.execute("""
-                INSERT INTO movimientos (reserva_numero, habitacion_numero, tipo, fecha_hora, empleado, observaciones)
-                VALUES (%s, %s, %s, NOW(), %s, %s)
-            """, (reserva_numero, habitacion_numero, tipo, empleado, observaciones))
-            conn.commit()
+            if "out" in tipo.lower():
+                registrar_checkout(reserva_numero, habitacion_numero, datetime.now(), empleado, observaciones)
+            else:
+                registrar_checkin(reserva_numero, habitacion_numero, datetime.now(), empleado, observaciones)
             row_id = len(self.tree.get_children())
             tag = "evenrow" if row_id % 2 == 0 else "oddrow"
             self.tree.insert("", "end",
-                             values=(cursor.lastrowid, reserva_numero, habitacion_numero,
+                             values=(row_id + 1, reserva_numero, habitacion_numero,
                                      tipo, "Ahora", empleado),
                              tags=(tag,))
             # desplazar y seleccionar la última fila
@@ -165,10 +226,9 @@ class CheckInCheckOutUI(ttk.Frame):
                 self.tree.see(last)
                 self.tree.selection_set(last)
             messagebox.showinfo("Éxito", f"{tipo} registrado correctamente")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo registrar: {e}")
-        finally:
-            conn.close()
 
     def cargar_movimientos(self):
         for row in self.tree.get_children():
@@ -190,46 +250,44 @@ class CheckInCheckOutUI(ttk.Frame):
             conn.close()
 
     def editar_movimiento(self):
+        if not validate_numeric(self, [("Reserva", self.reserva_entry), ("Habitación", self.habitacion_entry)], required=True):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Empleado", self.empleado_entry)], required=False):
+            return
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Selecciona un movimiento para editar")
             return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar este movimiento?"):
+            return
         item = self.tree.item(selected[0]); movimiento_id = item["values"][0]
         reserva_numero = self.reserva_entry.get(); habitacion_numero = self.habitacion_entry.get()
         tipo = self.tipo_entry.get(); empleado = self.empleado_entry.get(); observaciones = self.obs_entry.get()
-        conn = get_connection(); cursor = conn.cursor()
         try:
-            cursor.execute("""
-                UPDATE movimientos
-                SET reserva_numero=%s, habitacion_numero=%s, tipo=%s, empleado=%s, observaciones=%s
-                WHERE id=%s
-            """, (reserva_numero, habitacion_numero, tipo, empleado, observaciones, movimiento_id))
-            conn.commit()
+            actualizar_movimiento(movimiento_id, reserva_numero, habitacion_numero,
+                                  tipo, empleado, observaciones)
             self.tree.item(selected[0], values=(movimiento_id, reserva_numero, habitacion_numero, tipo, "Ahora", empleado))
             # asegurar que el elemento editado sea visible
             self.tree.see(selected[0])
             messagebox.showinfo("Éxito", "Movimiento actualizado correctamente")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo editar: {e}")
-        finally:
-            conn.close()
 
     def eliminar_movimiento(self):
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Error", "Selecciona un movimiento para eliminar")
             return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar este movimiento?"):
+            return
         item = self.tree.item(selected[0]); movimiento_id = item["values"][0]
-        conn = get_connection(); cursor = conn.cursor()
         try:
-            cursor.execute("DELETE FROM movimientos WHERE id=%s", (movimiento_id,))
-            conn.commit()
+            eliminar_movimiento(movimiento_id)
             self.tree.delete(selected[0])
             messagebox.showinfo("Éxito", "Movimiento eliminado correctamente")
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo eliminar: {e}")
-        finally:
-            conn.close()
 
     def buscar_movimiento(self):
         criterio = self.reserva_entry.get()

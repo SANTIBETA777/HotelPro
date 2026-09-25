@@ -1,8 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_connection
+from database import actualizar_tarifa, eliminar_tarifa, get_connection
+from database import insertar_tarifa
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import confirm_action, set_form_icon, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -39,6 +42,7 @@ class TarifasUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#5e35b1")
 
         ttk.Label(self, text="Gestión de Tarifas y Temporadas", style="Titulo.TLabel").pack(pady=10)
 
@@ -107,6 +111,8 @@ class TarifasUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "tarifas")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         self.cargar_tarifas()
 
@@ -116,7 +122,35 @@ class TarifasUI(ttk.Frame):
         Tooltip(entry,tip)
 
     # CRUD
+    def limpiar_campos(self):
+        entradas = (
+            self.codigo_entry, self.tipo_entry, self.temporada_entry,
+            self.base_entry, self.impuestos_entry, self.descuento_entry
+        )
+        for entrada in entradas:
+            entrada.delete(0, tk.END)
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+
+        valores = self.tree.item(seleccion[0], "values")
+        entradas = (
+            self.codigo_entry, self.tipo_entry, self.temporada_entry,
+            self.base_entry
+        )
+        for entrada, valor in zip(entradas, valores):
+            entrada.delete(0, tk.END)
+            entrada.insert(0, "" if valor is None else str(valor))
+        self.impuestos_entry.delete(0, tk.END)
+        self.descuento_entry.delete(0, tk.END)
+
     def agregar_tarifa(self):
+        if not validate_numeric(self, [("Tarifa base", self.base_entry), ("Impuestos", self.impuestos_entry), ("Descuento", self.descuento_entry)], required=False):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Temporada", self.temporada_entry)]):
+            return
         try:
             base_val=float(self.base_entry.get())
             impuestos_val=float(self.impuestos_entry.get())/100 if self.impuestos_entry.get() else 0
@@ -125,14 +159,10 @@ class TarifasUI(ttk.Frame):
         except ValueError:
             messagebox.showerror("Error","Valores numéricos inválidos"); return
 
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO tarifas (codigo,tipo_habitacion,temporada,tarifa_base,impuestos,descuento,precio_final)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
-            """,(self.codigo_entry.get(),self.tipo_entry.get(),self.temporada_entry.get(),
-                 base_val,impuestos_val,descuento_val,precio_final))
-            conn.commit()
+            insertar_tarifa(self.codigo_entry.get(), self.tipo_entry.get(),
+                            self.temporada_entry.get(), base_val,
+                            impuestos_val, descuento_val, precio_final)
             tag="evenrow" if len(self.tree.get_children())%2==0 else "oddrow"
             self.tree.insert("", "end", values=(self.codigo_entry.get(),self.tipo_entry.get(),
                                                 self.temporada_entry.get(),base_val,precio_final),tags=(tag,))
@@ -143,10 +173,9 @@ class TarifasUI(ttk.Frame):
                 self.tree.see(last)
                 self.tree.selection_set(last)
             messagebox.showinfo("Éxito",f"Tarifa {self.codigo_entry.get()} registrada")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo registrar: {e}")
-        finally:
-            conn.close()
 
     def cargar_tarifas(self):
         for row in self.tree.get_children(): self.tree.delete(row)
@@ -167,8 +196,13 @@ class TarifasUI(ttk.Frame):
             conn.close()
 
     def editar_tarifa(self):
+        if not validate_numeric(self, [("Tarifa base", self.base_entry), ("Impuestos", self.impuestos_entry), ("Descuento", self.descuento_entry)], required=False):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Temporada", self.temporada_entry)]):
+            return
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione una tarifa"); return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar esta tarifa?"): return
         codigo=self.tree.item(sel[0],"values")[0]
         try:
             base_val=float(self.base_entry.get())
@@ -178,14 +212,10 @@ class TarifasUI(ttk.Frame):
         except ValueError:
             messagebox.showerror("Error","Valores numéricos inválidos"); return
 
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("""
-                UPDATE tarifas SET tipo_habitacion=%s,temporada=%s,tarifa_base=%s,
-                    impuestos=%s,descuento=%s,precio_final=%s WHERE codigo=%s
-            """,(self.tipo_entry.get(),self.temporada_entry.get(),base_val,
-                 impuestos_val,descuento_val,precio_final,codigo))
-            conn.commit(); self.cargar_tarifas()
+            actualizar_tarifa(codigo, self.tipo_entry.get(), self.temporada_entry.get(),
+                              base_val, impuestos_val, descuento_val, precio_final)
+            self.cargar_tarifas()
             # asegurar que el elemento editado sea visible
             children = self.tree.get_children()
             for ch in children:
@@ -195,24 +225,20 @@ class TarifasUI(ttk.Frame):
                     self.tree.selection_set(ch)
                     break
             messagebox.showinfo("Éxito",f"Tarifa {codigo} actualizada")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo actualizar: {e}")
-        finally:
-            conn.close()
 
     def eliminar_tarifa(self):
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione una tarifa"); return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar esta tarifa?"): return
         codigo=self.tree.item(sel[0],"values")[0]
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("DELETE FROM tarifas WHERE codigo=%s",(codigo,))
-            conn.commit(); self.cargar_tarifas()
+            eliminar_tarifa(codigo); self.cargar_tarifas()
             messagebox.showinfo("Éxito",f"Tarifa {codigo} eliminada")
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo eliminar: {e}")
-        finally:
-            conn.close()
 
     def buscar_tarifa(self):
         criterio=self.codigo_entry.get()

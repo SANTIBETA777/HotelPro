@@ -1,8 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from database import get_connection
+from database import actualizar_evento, eliminar_evento, get_connection
+from database import insertar_evento
 from ui.tooltip import Tooltip
 from ui.style import aplicar_estilos
+from ui.form_utils import confirm_action, set_form_icon, validate_numeric, validate_text
+from ui.export_utils import add_export_controls
+from tkcalendar import DateEntry
 
 # ------------------ ScrollFrame para formularios largos ------------------
 class ScrollFrame(ttk.Frame):
@@ -39,6 +43,7 @@ class EventosUI(ttk.Frame):
         super().__init__(parent)
 
         aplicar_estilos(parent)
+        set_form_icon(parent.winfo_toplevel(), "#ef6c00")
 
         ttk.Label(self, text="Gestión de Eventos", style="Titulo.TLabel").pack(pady=10)
 
@@ -52,7 +57,7 @@ class EventosUI(ttk.Frame):
         self.codigo_entry = ttk.Entry(form_frame); self._add_field(form_frame,"Código:",self.codigo_entry,"Identificador único del evento",0)
         self.tipo_entry = ttk.Entry(form_frame); self._add_field(form_frame,"Tipo Evento:",self.tipo_entry,"Ejemplo: conferencia, boda, reunión",1)
         self.cliente_entry = ttk.Entry(form_frame); self._add_field(form_frame,"Cliente ID:",self.cliente_entry,"Identificador del cliente",2)
-        self.fecha_entry = ttk.Entry(form_frame); self._add_field(form_frame,"Fecha:",self.fecha_entry,"AAAA-MM-DD",3)
+        self.fecha_entry = DateEntry(form_frame, date_pattern="yyyy-mm-dd"); self._add_field(form_frame,"Fecha:",self.fecha_entry,"AAAA-MM-DD",3)
         self.duracion_entry = ttk.Entry(form_frame); self._add_field(form_frame,"Duración (horas):",self.duracion_entry,"Duración estimada",4)
         self.asistentes_entry = ttk.Entry(form_frame); self._add_field(form_frame,"Asistentes:",self.asistentes_entry,"Número de personas",5)
         self.precio_entry = ttk.Entry(form_frame); self._add_field(form_frame,"Precio Total:",self.precio_entry,"Costo total",6)
@@ -109,6 +114,8 @@ class EventosUI(ttk.Frame):
         def _on_shift_mousewheel(event):
             self.tree.xview_scroll(int(-1 * (event.delta / 120)), "units")
         self.tree.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        add_export_controls(self, self.tree, "eventos")
+        self.tree.bind("<<TreeviewSelect>>", self.cargar_datos_seleccionados)
 
         self.cargar_eventos()
 
@@ -118,7 +125,35 @@ class EventosUI(ttk.Frame):
         Tooltip(entry,tip)
 
     # CRUD
+    def limpiar_campos(self):
+        entradas = (
+            self.codigo_entry, self.tipo_entry, self.cliente_entry,
+            self.fecha_entry, self.duracion_entry, self.asistentes_entry,
+            self.precio_entry, self.estado_entry
+        )
+        for entrada in entradas:
+            entrada.delete(0, tk.END)
+
+    def cargar_datos_seleccionados(self, event):
+        seleccion = self.tree.selection()
+        if not seleccion:
+            return
+
+        valores = self.tree.item(seleccion[0], "values")
+        entradas = (
+            self.codigo_entry, self.tipo_entry, self.cliente_entry,
+            self.fecha_entry, self.duracion_entry, self.asistentes_entry,
+            self.precio_entry, self.estado_entry
+        )
+        for entrada, valor in zip(entradas, valores):
+            entrada.delete(0, tk.END)
+            entrada.insert(0, "" if valor is None else str(valor))
+
     def agregar_evento(self):
+        if not validate_numeric(self, [("Cliente", self.cliente_entry), ("Duración", self.duracion_entry), ("Asistentes", self.asistentes_entry), ("Precio", self.precio_entry)], integer_fields=("Cliente", "Duración", "Asistentes"), required=False):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Estado", self.estado_entry)]):
+            return
         codigo=self.codigo_entry.get(); tipo=self.tipo_entry.get()
         cliente_id=self.cliente_entry.get(); fecha=self.fecha_entry.get()
         duracion=self.duracion_entry.get(); asistentes=self.asistentes_entry.get()
@@ -127,17 +162,12 @@ class EventosUI(ttk.Frame):
         if not codigo or not tipo or not cliente_id or not fecha:
             messagebox.showwarning("Error","Código, tipo, cliente y fecha son obligatorios"); return
 
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("""
-                INSERT INTO eventos (codigo,tipo,cliente_id,fecha,duracion,asistentes,precio_total,estado)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-            """,(codigo,tipo,cliente_id,fecha,
-                 int(duracion) if duracion else 0,
-                 int(asistentes) if asistentes else 0,
-                 float(precio) if precio else 0,
-                 estado if estado else "pendiente"))
-            conn.commit()
+            insertar_evento(codigo, tipo, cliente_id, fecha,
+                            int(duracion) if duracion else 0,
+                            int(asistentes) if asistentes else 0,
+                            float(precio) if precio else 0,
+                            estado if estado else "pendiente")
             tag="evenrow" if len(self.tree.get_children())%2==0 else "oddrow"
             self.tree.insert("", "end", values=(codigo,tipo,cliente_id,fecha,duracion,asistentes,precio,estado),tags=(tag,))
             # desplazar y seleccionar la última fila
@@ -147,10 +177,9 @@ class EventosUI(ttk.Frame):
                 self.tree.see(last)
                 self.tree.selection_set(last)
             messagebox.showinfo("Éxito",f"Evento {codigo} registrado")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo registrar: {e}")
-        finally:
-            conn.close()
 
     def cargar_eventos(self):
         for row in self.tree.get_children(): self.tree.delete(row)
@@ -171,24 +200,24 @@ class EventosUI(ttk.Frame):
             conn.close()
 
     def editar_evento(self):
+        if not validate_numeric(self, [("Cliente", self.cliente_entry), ("Duración", self.duracion_entry), ("Asistentes", self.asistentes_entry), ("Precio", self.precio_entry)], integer_fields=("Cliente", "Duración", "Asistentes"), required=False):
+            return
+        if not validate_text(self, [("Tipo", self.tipo_entry), ("Estado", self.estado_entry)]):
+            return
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione un evento"); return
+        if not confirm_action(self, "Confirmar actualización", "¿Desea actualizar este evento?"): return
         codigo=self.tree.item(sel[0],"values")[0]
         tipo=self.tipo_entry.get(); cliente_id=self.cliente_entry.get()
         fecha=self.fecha_entry.get(); duracion=self.duracion_entry.get()
         asistentes=self.asistentes_entry.get(); precio=self.precio_entry.get()
         estado=self.estado_entry.get()
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("""
-                UPDATE eventos SET tipo=%s,cliente_id=%s,fecha=%s,duracion=%s,asistentes=%s,precio_total=%s,estado=%s
-                WHERE codigo=%s
-            """,(tipo,cliente_id,fecha,
-                 int(duracion) if duracion else 0,
-                 int(asistentes) if asistentes else 0,
-                 float(precio) if precio else 0,
-                 estado,codigo))
-            conn.commit(); self.cargar_eventos()
+            actualizar_evento(codigo, tipo, cliente_id, fecha,
+                              int(duracion) if duracion else 0,
+                              int(asistentes) if asistentes else 0,
+                              float(precio) if precio else 0, estado)
+            self.cargar_eventos()
             # asegurar que el elemento editado sea visible
             children = self.tree.get_children()
             for ch in children:
@@ -198,24 +227,20 @@ class EventosUI(ttk.Frame):
                     self.tree.selection_set(ch)
                     break
             messagebox.showinfo("Éxito",f"Evento {codigo} actualizado")
+            self.limpiar_campos()
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo actualizar: {e}")
-        finally:
-            conn.close()
 
     def eliminar_evento(self):
         sel=self.tree.selection()
         if not sel: messagebox.showwarning("Error","Seleccione un evento"); return
+        if not confirm_action(self, "Confirmar eliminación", "¿Desea eliminar este evento?"): return
         codigo=self.tree.item(sel[0],"values")[0]
-        conn=get_connection(); cursor=conn.cursor()
         try:
-            cursor.execute("DELETE FROM eventos WHERE codigo=%s",(codigo,))
-            conn.commit(); self.cargar_eventos()
+            eliminar_evento(codigo); self.cargar_eventos()
             messagebox.showinfo("Éxito",f"Evento {codigo} eliminado")
         except Exception as e:
             messagebox.showerror("Error",f"No se pudo eliminar: {e}")
-        finally:
-            conn.close()
 
     def buscar_evento(self):
         criterio=self.codigo_entry.get()

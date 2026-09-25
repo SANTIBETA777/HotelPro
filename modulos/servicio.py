@@ -14,6 +14,13 @@ class Servicio:
     def mostrar_info(self):
         return f"{self.nombre} - {self.precio} USD ({self.horario['inicio']} a {self.horario['fin']})"
 
+    def calcular_total(self, cantidad=1, descuento=0.0, impuestos=0.0):
+        subtotal = self.precio * cantidad
+        descuento_total = min(max(descuento, 0.0), 0.35)
+        total = subtotal * (1 - descuento_total)
+        total *= (1 + max(impuestos, 0.0))
+        return round(total, 2)
+
 
 class ConsumoServicio:
     def __init__(self, cliente, habitacion, servicio: Servicio,
@@ -26,8 +33,8 @@ class ConsumoServicio:
         self.empleado = empleado
         self.observaciones = observaciones
 
-    def calcular_total(self):
-        return self.servicio.precio * self.cantidad
+    def calcular_total(self, descuento=0.0, impuestos=0.0):
+        return self.servicio.calcular_total(self.cantidad, descuento, impuestos)
 
     def mostrar_info(self):
         return (f"Consumo de {self.servicio.nombre} por {self.cliente.nombres} "
