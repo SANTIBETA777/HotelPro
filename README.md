@@ -219,13 +219,13 @@ Este proyecto cumple con ese enfoque, y el README sirve como guía para comprend
 ## 🔗 Enlaces relevantes
 
 GitHub:  
-https://github.com/SANTIBETA777/HotelPro/blob/main/main.py
+https://github.com/SANTIBETA777/HotelPro.git
 
 Video explicativo de la interfaz y funcionamiento:  
-https://share.vidyard.com/watch/D8a6DkLdf2mk6EuFbqs56o
+https://share.vidyard.com/watch/x9sniohF1rvBUX9nk6pf1V
 
 Presentación Genially:  
-https://view.genially.com/6aa59eaec719f710592c17a3
+https://view.genially.com/6ab6b4d395174f58169beae9
 
 ---
 
